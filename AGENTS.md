@@ -18,7 +18,7 @@ Antes de trabajar, leer:
 
 Las especificaciones principales en `openspec/specs/` aún no contienen capacidades consolidadas. No confundir los artefactos de planificación completos con implementación terminada. Si las fuentes discrepan, informar la discrepancia y conservar las decisiones explícitas del usuario; no resolverla cambiando silenciosamente las reglas.
 
-La sección Impact de la propuesta conserva una referencia anterior a tecnologías pendientes. Las tecnologías ya aprobadas están en la configuración y en el diseño actualizado. Los detalles técnicos que ambos dejan abiertos siguen pendientes.
+La propuesta y el diseño registran las tecnologías y decisiones técnicas aprobadas. Consultar el diseño para las versiones concretas, acceso a datos, migraciones y coordinación transaccional. La autorización actual abarca únicamente las bases de las tareas 1.4–1.6; no implica implementar las capacidades funcionales restantes.
 
 ## Tecnologías y arquitectura
 

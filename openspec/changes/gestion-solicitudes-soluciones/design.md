@@ -2,13 +2,13 @@
 
 ## Context
 
-Ver [proposal.md](proposal.md) para la motivación. La inspección encontró únicamente OpenSpec inicializado, sin aplicación ni especificaciones previas. Las decisiones funcionales fueron confirmadas por el usuario. La configuración del proyecto aprueba Angular, Spring Boot, PostgreSQL, arquitectura hexagonal y desarrollo local con Docker Compose. Este documento incorpora esas decisiones; no autoriza iniciar implementación. La referencia a tecnologías pendientes en Impact de proposal.md corresponde al estado anterior a esta configuración y queda pendiente de reconciliar fuera del alcance de esta edición.
+Ver [proposal.md](proposal.md) para la motivación. El proyecto partió de planificación OpenSpec sin aplicación previa. El usuario aprobó las tres capacidades existentes y las decisiones técnicas siguientes; autoriza implementar únicamente las bases de las tareas 1.4–1.6. Las reglas funcionales se conservan sin cambios.
 
 ## Goals / Non-Goals
 
 **Goals:** precisar relaciones de datos, estados, flujos y condiciones de consistencia suficientes para verificar las reglas de negocio, asignando responsabilidades a las capas de la arquitectura aprobada y definiendo la estrategia de verificación.
 
-**Non-Goals:** cambiar las tecnologías aprobadas, seleccionar bibliotecas adicionales sin revisión, autorizar despliegue productivo, definir administración de empleados o modificar las reglas de negocio. Los mecanismos de concurrencia y contratos aún no definidos se mantienen como decisiones bloqueantes antes de implementar.
+**Non-Goals:** cambiar las tecnologías aprobadas, seleccionar bibliotecas adicionales sin revisión, autorizar despliegue productivo, definir administración de empleados o modificar las reglas de negocio. Esta entrega no implementa casos de uso funcionales ni modifica las especificaciones.
 
 ## Decisions
 
@@ -32,7 +32,11 @@ PostgreSQL persistirá las entidades y relaciones del modelo conceptual. El dise
 
 Docker Compose coordinará frontend, backend y PostgreSQL para la demostración local, con configuración de conexión, comprobaciones de disponibilidad y almacenamiento persistente de la base. Se documentarán arranque, parada y reinicialización explícita de los datos de demostración. El arranque ordinario no deberá borrar datos.
 
-Quedan por concretar el adaptador de persistencia, las versiones y herramientas de construcción, y el mecanismo de evolución del esquema. No se incorporan ORM, bibliotecas de interfaz ni herramientas de migración como decisiones implícitas.
+Se aprueban Angular 22, Spring Boot 4.1.2, Java 21 y PostgreSQL 17.11. Maven Wrapper fija Maven y Angular CLI con npm fija dependencias mediante package-lock.json. El parche Angular y las versiones auxiliares compatibles se registrarán en los manifiestos y README.
+
+Spring JDBC con JdbcClient implementará los adaptadores: permite inspeccionar SQL y límites transaccionales sin ORM. Se descartó JPA para esta versión para evitar seguimiento implícito de entidades y mantener visible el acceso SQL. Flyway con SQL versionado gestionará el esquema; se prefirió a Liquibase por simplicidad con una sola base de datos. No se modificarán migraciones ya aplicadas; las correcciones se harán mediante nuevas versiones.
+
+La primera migración de infraestructura solo prepara un esquema propio. Las tablas de negocio, datos de actores y uso efectivo del bloqueo pertenecen a las tareas posteriores. Las bases expondrán salud técnica del backend y su conexión a PostgreSQL, sin endpoints funcionales ficticios.
 
 ### Pruebas automatizadas
 
@@ -42,7 +46,7 @@ Quedan por concretar el adaptador de persistencia, las versiones y herramientas 
 - Pruebas Angular de formularios, filtros, cambio de persona y presentación de resultados.
 - Pruebas integradas del recorrido completo sobre el entorno local.
 
-Las herramientas concretas se definirán antes de implementar. Cada grupo de tareas incorpora sus pruebas y documentación; la verificación final comprueba la integración.
+Se usarán JUnit y Testcontainers con PostgreSQL 17.11 en backend, y las herramientas de pruebas de Angular CLI en frontend. Cada grupo de tareas incorpora sus pruebas y documentación; la verificación final comprueba la integración.
 
 ### Modelo conceptual
 
@@ -58,9 +62,9 @@ Los campos siguientes describen información necesaria, no tablas físicas ni co
 | Tarea | Identificador, solicitud, empleado responsable, estado | Exactamente una solicitud y un responsable; la solicitud no puede tener otra tarea durante este flujo |
 | Contexto de demostración | Rol y persona seleccionada | No constituye una cuenta autenticada; coordinador es un rol de demostración |
 
-La situación de asignación y la carga pueden almacenarse o derivarse: esa decisión técnica queda pendiente. En cualquier caso deben coincidir con las tareas efectivas. El responsable se obtiene de la tarea asociada, evitando discrepancias entre dos responsables conceptuales.
+La carga se calcula desde las tareas PENDIENTE y EN_PROGRESO, sin contador persistido. La situación de asignación se obtiene de la existencia de tarea, evitando duplicar estado. El responsable se obtiene de la tarea asociada, evitando discrepancias entre dos responsables conceptuales.
 
-Convenciones documentales menores: se denomina ASIGNADA a la situación opuesta a PENDIENTE_ASIGNACION y se usan identificadores numéricos en los ejemplos. Su representación técnica está pendiente, pero debe preservar el orden de «identificador menor» acordado. No se agregan prioridades, plazos ni estados de cancelación.
+Convenciones documentales menores: se denomina ASIGNADA a la situación opuesta a PENDIENTE_ASIGNACION y se usan identificadores numéricos en los ejemplos. Los identificadores serán BIGINT positivos, ordenados numéricamente. Las fechas se almacenarán como instantes con zona horaria y se intercambiarán en UTC. No se agregan prioridades, plazos ni estados de cancelación.
 
 ### Estados y transiciones
 
@@ -101,7 +105,24 @@ El orden de antigüedad gobierna los reintentos; no se introduce una cola global
 - Resolver repetidamente la misma tarea no libera cupos adicionales. Resolver y asignar concurrentemente conserva una carga válida.
 - Una asignación parcialmente completada no se muestra como éxito ni deja relaciones huérfanas.
 
-Estas garantías se implementarán mediante la coordinación de los casos de uso de Spring Boot y el adaptador PostgreSQL. La configuración no selecciona bloqueos, límites transaccionales ni aislamiento: el mecanismo deberá documentarse y aprobarse antes del código, explicando cada invariante y sus pruebas. Elegir PostgreSQL no demuestra por sí solo el cumplimiento.
+### Coordinación transaccional aprobada
+
+Se usará una fila única de coordinación en PostgreSQL, bloqueada mediante SELECT FOR UPDATE al inicio de cada transacción que registre/asigne solicitudes, cambie estado de tareas o reintente pendientes. El bloqueo pertenece a la transacción y se libera al confirmar o revertir. Todos los escritores deben seguir este protocolo; un mutex Java no sirve entre procesos.
+
+El adaptador transaccional usará READ COMMITTED. Adquirirá primero el bloqueo y después consultará solicitudes y cargas, de modo que vea los cambios confirmados por el escritor precedente. La selección sigue en el dominio. El registro válido y su asignación se confirman juntos; la falta de elegibilidad conserva una solicitud pendiente, mientras que un fallo técnico revierte la operación.
+
+Un reintento completo usa una sola transacción y el mismo bloqueo: consulta las pendientes después de adquirirlo, las ordena por fecha/identificador y calcula la carga tras cada asignación. Una falta de disponibilidad no aborta el lote; un fallo técnico sí revierte todo el lote. No habrá reintento automático de negocio ni repetición automática de escrituras fallidas en esta versión.
+
+| Invariante | Garantía técnica planificada |
+| --- | --- |
+| Una tarea por solicitud | UNIQUE(tarea.solicitud_id), referencias obligatorias y bloqueo común |
+| Capacidad y selección determinista | Lectura de carga tras bloqueo; decisión de dominio y escritura en la misma transacción |
+| Pendientes, responsables y carga coherentes | Estado derivado de tareas, claves foráneas y consulta consistente |
+| Lotes superpuestos ordenados | Bloqueo mantenido durante todo el lote; segundo lote relee pendientes |
+| Resolución repetida o concurrente | Relectura del estado bajo el mismo bloqueo; transición validada y carga calculada |
+| Fallo sin asignación parcial visible | Rollback de la transacción completa; respuesta exitosa solo después del commit |
+
+Se prefirió el bloqueo común a bloqueos por empleado o SERIALIZABLE con repetición por su facilidad de verificación para una demostración. No supone que UNIQUE por sí solo controle capacidad.
 
 ### Casos excepcionales
 
@@ -115,7 +136,7 @@ Estas garantías se implementarán mediante la coordinación de los casos de uso
 | Cambio de tarea ajena o transición inválida | No modificar estado ni carga |
 | Fallo técnico durante asignación | No afirmar éxito ni exponer relaciones parciales; no equipararlo silenciosamente a falta de disponibilidad |
 
-Los detalles de recuperación de fallos de persistencia y de respuesta al usuario requieren el diseño técnico posterior; no se introduce una política de reintentos automáticos. Si esa política técnica requiere modificar comportamiento observable, debe consultarse antes de incorporarla.
+Un fallo de persistencia revierte la transacción y se devuelve como error técnico, sin indicar falta de disponibilidad; no se introduce una política de reintentos automáticos. Si esa política técnica requiere modificar comportamiento observable, debe consultarse antes de incorporarla.
 
 ## Risks / Trade-offs
 
@@ -123,20 +144,25 @@ Los detalles de recuperación de fallos de persistencia y de respuesta al usuari
 - [Dos asignaciones consumen el último cupo] → Verificar las invariantes con escenarios concurrentes de registro, reintento y resolución antes de considerar completa la implementación.
 - [Conteo duplicado o desactualizado] → Toda representación de carga debe concordar con las tareas abiertas; la resolución repetida no altera ese total otra vez.
 - [Categorías sin cobertura] → Las solicitudes pueden permanecer pendientes indefinidamente; esta versión permite seguimiento y reintento manual, sin ampliar el alcance.
-- [Diseño técnico pendiente] → No iniciar implementación hasta que el desarrollador defina y apruebe las decisiones reservadas; después ajustar el plan técnico sin alterar los contratos funcionales aprobados.
+- [Escrituras serializadas] → El bloqueo común limita el rendimiento de asignación y resolución; añadir réplicas del backend no aumenta su paralelismo. Aceptable para demostración local, sin compromiso de capacidad productiva.
+- [Lote grande] → Mantiene el bloqueo y la transacción durante todo el recorrido, incrementando latencia, espera y coste de rollback. Medir antes de escalar; dividir lotes o particionar bloqueos requeriría revisar las garantías y aprobar el cambio.
+- [Carga calculada] → Evita contadores inconsistentes a costa de consultas de conteo. Prever índices por responsable/estado y medir con datos representativos.
+- [Cliente sin respuesta tras commit] → No repetir automáticamente registros: un fallo de red puede dejar resultado desconocido aunque la base haya confirmado. La idempotencia de creación no está incluida en las especificaciones.
 
 ## Migration Plan
 
-No existe aplicación ni datos previos que migrar. Se prevén datos de demostración para clientes, categorías, empleados, habilitaciones y capacidades, incluyendo casos de empate y falta de disponibilidad. La preparación local usará Docker Compose y PostgreSQL. Antes de implementar se documentarán creación y evolución del esquema, carga reproducible de datos, persistencia entre reinicios y reinicialización explícita; la herramienta concreta sigue pendiente. No se define publicación productiva. Este cambio no autoriza despliegues.
+No hay datos previos que migrar. Flyway aplicará migraciones SQL al arrancar el backend; los errores impedirán un arranque saludable. La preparación inicial crea el esquema, y las tablas y semillas funcionales llegarán en tareas posteriores. El volumen PostgreSQL conserva datos entre reinicios. La reinicialización será una operación explícita y documentada; no se ejecuta como parte del arranque normal. No se autoriza despliegue productivo ni se promete rollback automático de migraciones.
 
-## Decisiones técnicas pendientes de aprobación
+## Contratos y persistencia para las tareas posteriores
 
-Angular, Spring Boot, PostgreSQL, arquitectura hexagonal y Docker Compose ya están aprobados. No deben volver a tratarse como elecciones pendientes.
+OpenAPI será la referencia de las operaciones REST antes de implementar cada adaptador funcional. Esta entrega documentará únicamente el endpoint técnico de salud; no presentará funcionalidades pendientes como disponibles.
 
-Antes de iniciar código se deben concretar y revisar:
-- Mecanismo de concurrencia, límites transaccionales, aislamiento y recuperación ante fallos, con trazabilidad a todas las invariantes.
-- Contratos de operaciones y comunicación Angular/backend, representación y orden de identificadores y fechas.
-- Representación de carga y situación de asignación, esquema físico y adaptador de persistencia.
-- Versiones compatibles, herramientas de construcción, pruebas y evolución del esquema.
+Los contratos funcionales deberán describir registro, listado/detalle con filtros, tareas propias, transiciones y reintento del coordinador; conservarán los escenarios de las especificaciones. El formato de transporte de BIGINT debe preservar todos sus dígitos en Angular (se propone cadena decimal); las fechas usarán UTC. Las rutas exactas, el transporte del actor y el formato final de errores se revisarán antes de los endpoints funcionales. No se requiere implementarlos para compilar las bases.
 
-Estas decisiones no están aprobadas por inferencia. Las tareas de definición las mantienen como requisitos previos y deberán refinar las tareas dependientes cuando se resuelvan. No cambian las especificaciones funcionales.
+El esquema de negocio previsto tendrá cliente, categoria, empleado, habilitacion (par empleado/categoría único), solicitud y tarea. Las claves serán BIGINT; solicitud referenciará cliente/categoría y tarea referenciará solicitud de forma única y empleado. Tarea conservará su estado, y solicitud su fecha, asunto y descripción. No habrá columna de carga acumulada. Las migraciones funcionales deben concretar restricciones e índices en la tarea 2.1 antes de ejecutar operaciones de negocio.
+
+## Aprobación y alcance de la entrega
+
+Las decisiones de acceso a datos, migraciones, versiones principales, construcción, OpenAPI, BIGINT, UTC, carga derivada, actores de demostración, coordinación y pruebas fueron aprobadas por el usuario. La tarea 1.3 separa ahora las decisiones necesarias para preparar las bases de los contratos funcionales detallados, que se verifican en las tareas que los implementan. Se conserva el trabajo pendiente; no se considera completado por crear los proyectos.
+
+Solo se implementan estructura hexagonal, salud técnica, infraestructura local y pruebas iniciales. La coordinación anterior es diseño aprobado, no una funcionalidad implementada en esta entrega.

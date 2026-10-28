@@ -29,4 +29,8 @@ Ninguna: no existen especificaciones previas.
 
 ## Impact
 
-El proyecto contiene únicamente la estructura inicial de OpenSpec; no se encontró aplicación, pruebas ni contratos existentes. Este cambio agrega planificación para una aplicación nueva, sin modificar código ni incorporar dependencias. El diseño será conceptual: frontend, backend, persistencia, arquitectura y mecanismos técnicos de concurrencia requieren definición y aprobación posterior del desarrollador antes de implementar.
+El cambio incorpora una aplicación nueva con Angular 22, Spring Boot 4.1.2 sobre Java 21, PostgreSQL 17.11 y arquitectura hexagonal. El acceso a datos será Spring JDBC con JdbcClient; Flyway gestionará migraciones SQL. Maven Wrapper y Angular CLI con npm permitirán construcciones reproducibles y Docker Compose el desarrollo local.
+
+Los contratos REST se definirán mediante OpenAPI. Se usarán identificadores BIGINT, fechas UTC, carga calculada desde tareas y actores de demostración sin autenticación real. La coordinación transaccional serializará las operaciones de asignación/carga y cada reintento será una transacción para el lote completo. El diseño documenta las limitaciones de escalabilidad.
+
+Se incluyen pruebas JUnit, Testcontainers y herramientas Angular. La autorización actual de implementación se limita a las bases de las tareas 1.4–1.6; las capacidades funcionales posteriores conservan su alcance, pero no se implementan en esta entrega. No se autoriza despliegue productivo.

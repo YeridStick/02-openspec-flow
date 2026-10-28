@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Soluciones — infraestructura inicial
+  version: 0.1.0
+  description: Solo salud técnica. Los contratos funcionales se incorporarán antes de implementar sus casos de uso.
+paths:
+  /actuator/health:
+    get:
+      operationId: consultarSalud
+      summary: Comprueba disponibilidad del backend y su conexión a PostgreSQL
+      responses:
+        '200':
+          description: Servicio disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Una dependencia necesaria no está disponible
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: UP
