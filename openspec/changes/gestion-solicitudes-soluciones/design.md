@@ -2,15 +2,47 @@
 
 ## Context
 
-Ver [proposal.md](proposal.md) para la motivación. La inspección encontró únicamente OpenSpec inicializado, sin aplicación ni especificaciones previas. Las decisiones funcionales fueron confirmadas por el usuario. Este documento constituye un diseño conceptual para revisión, no una selección de tecnologías ni una arquitectura aprobada.
+Ver [proposal.md](proposal.md) para la motivación. La inspección encontró únicamente OpenSpec inicializado, sin aplicación ni especificaciones previas. Las decisiones funcionales fueron confirmadas por el usuario. La configuración del proyecto aprueba Angular, Spring Boot, PostgreSQL, arquitectura hexagonal y desarrollo local con Docker Compose. Este documento incorpora esas decisiones; no autoriza iniciar implementación. La referencia a tecnologías pendientes en Impact de proposal.md corresponde al estado anterior a esta configuración y queda pendiente de reconciliar fuera del alcance de esta edición.
 
 ## Goals / Non-Goals
 
-**Goals:** precisar relaciones de datos, estados, flujos y condiciones de consistencia suficientes para verificar las reglas de negocio, manteniendo independientes las decisiones técnicas.
+**Goals:** precisar relaciones de datos, estados, flujos y condiciones de consistencia suficientes para verificar las reglas de negocio, asignando responsabilidades a las capas de la arquitectura aprobada y definiendo la estrategia de verificación.
 
-**Non-Goals:** elegir frontend, backend, persistencia, arquitectura, protocolos, despliegue o mecanismos de concurrencia. Tampoco definir administración de empleados ni modificar el alcance confirmado en la propuesta.
+**Non-Goals:** cambiar las tecnologías aprobadas, seleccionar bibliotecas adicionales sin revisión, autorizar despliegue productivo, definir administración de empleados o modificar las reglas de negocio. Los mecanismos de concurrencia y contratos aún no definidos se mantienen como decisiones bloqueantes antes de implementar.
 
 ## Decisions
+
+### Arquitectura y responsabilidades
+
+Angular implementará la presentación: selector de rol/persona, formulario de registro, consultas, filtros y acciones del empleado y coordinador. Mostrará los resultados del backend; la validación visual no sustituye las reglas del dominio.
+
+El backend Spring Boot se organizará con dependencias hacia el interior:
+
+- **Dominio:** entidades y políticas de validación, visibilidad por actor, elegibilidad, carga global, desempate, capacidad y transiciones. No dependerá de Angular, Spring ni de detalles de PostgreSQL.
+- **Aplicación:** casos de uso de registro, consulta, avance de tarea y reintento. Coordinará las políticas del dominio y los puertos necesarios para persistencia, consulta, identificación, tiempo y ejecución consistente.
+- **Infraestructura:** adaptadores de entrada para las operaciones expuestas al frontend, adaptadores de persistencia PostgreSQL y configuración Spring Boot. Aquí se materializarán las garantías técnicas de consistencia; la política de reparto permanecerá en el dominio.
+
+Los puertos pertenecen al interior y los adaptadores los implementan. No se colocará la selección del responsable en controladores, componentes Angular ni procedimientos de base de datos. Las consultas podrán filtrar en PostgreSQL, pero deberán respetar los límites de actor establecidos por el dominio y aplicados por los casos de uso.
+
+Esta separación responde a la arquitectura elegida por el desarrollador y permite probar las reglas sin arrancar infraestructura. No se reconsideran otros frameworks ni bases de datos. Distribuir las reglas entre interfaz y persistencia dificultaría verificar una única política de negocio.
+
+### Persistencia y entorno local
+
+PostgreSQL persistirá las entidades y relaciones del modelo conceptual. El diseño físico deberá incluir integridad referencial y unicidad de la relación tarea-solicitud, además de la coordinación necesaria para capacidad y selección determinista. Una restricción de unicidad por sí sola no resuelve la competencia por cupos.
+
+Docker Compose coordinará frontend, backend y PostgreSQL para la demostración local, con configuración de conexión, comprobaciones de disponibilidad y almacenamiento persistente de la base. Se documentarán arranque, parada y reinicialización explícita de los datos de demostración. El arranque ordinario no deberá borrar datos.
+
+Quedan por concretar el adaptador de persistencia, las versiones y herramientas de construcción, y el mecanismo de evolución del esquema. No se incorporan ORM, bibliotecas de interfaz ni herramientas de migración como decisiones implícitas.
+
+### Pruebas automatizadas
+
+- Pruebas unitarias del dominio para registro, visibilidad, reparto, carga y transiciones, sin infraestructura.
+- Pruebas de aplicación con puertos sustituidos para comprobar coordinación, permisos del contexto de demostración y manejo de errores.
+- Pruebas de integración con PostgreSQL real para relaciones, unicidad, atomicidad y escenarios concurrentes; una base en memoria no sustituye estas verificaciones.
+- Pruebas Angular de formularios, filtros, cambio de persona y presentación de resultados.
+- Pruebas integradas del recorrido completo sobre el entorno local.
+
+Las herramientas concretas se definirán antes de implementar. Cada grupo de tareas incorpora sus pruebas y documentación; la verificación final comprueba la integración.
 
 ### Modelo conceptual
 
@@ -69,7 +101,7 @@ El orden de antigüedad gobierna los reintentos; no se introduce una cola global
 - Resolver repetidamente la misma tarea no libera cupos adicionales. Resolver y asignar concurrentemente conserva una carga válida.
 - Una asignación parcialmente completada no se muestra como éxito ni deja relaciones huérfanas.
 
-Estas son garantías funcionales, no una elección de bloqueos, transacciones, colas, aislamiento o almacenamiento. El desarrollador deberá presentar un mecanismo que las satisfaga para su aprobación.
+Estas garantías se implementarán mediante la coordinación de los casos de uso de Spring Boot y el adaptador PostgreSQL. La configuración no selecciona bloqueos, límites transaccionales ni aislamiento: el mecanismo deberá documentarse y aprobarse antes del código, explicando cada invariante y sus pruebas. Elegir PostgreSQL no demuestra por sí solo el cumplimiento.
 
 ### Casos excepcionales
 
@@ -95,8 +127,16 @@ Los detalles de recuperación de fallos de persistencia y de respuesta al usuari
 
 ## Migration Plan
 
-No existe aplicación ni datos previos que migrar. Se prevén datos de demostración para clientes, categorías, empleados, habilitaciones y capacidades, incluyendo casos de empate y falta de disponibilidad. No se selecciona un mecanismo de carga, publicación ni reversión: dependerá de las tecnologías y arquitectura posteriores. Este cambio no autoriza despliegues.
+No existe aplicación ni datos previos que migrar. Se prevén datos de demostración para clientes, categorías, empleados, habilitaciones y capacidades, incluyendo casos de empate y falta de disponibilidad. La preparación local usará Docker Compose y PostgreSQL. Antes de implementar se documentarán creación y evolución del esquema, carga reproducible de datos, persistencia entre reinicios y reinicialización explícita; la herramienta concreta sigue pendiente. No se define publicación productiva. Este cambio no autoriza despliegues.
 
 ## Decisiones técnicas pendientes de aprobación
 
-Por instrucción explícita del usuario quedan pendientes frontend, backend, persistencia, arquitectura y mecanismos técnicos de concurrencia. Antes de implementar, el desarrollador deberá concretar además representación y orden de identificadores, fechas, contratos de operaciones y recuperación frente a fallos técnicos. No son decisiones aprobadas por la existencia de este documento. Las tareas siguientes se organizan por comportamiento y deberán detallarse técnicamente tras esa definición.
+Angular, Spring Boot, PostgreSQL, arquitectura hexagonal y Docker Compose ya están aprobados. No deben volver a tratarse como elecciones pendientes.
+
+Antes de iniciar código se deben concretar y revisar:
+- Mecanismo de concurrencia, límites transaccionales, aislamiento y recuperación ante fallos, con trazabilidad a todas las invariantes.
+- Contratos de operaciones y comunicación Angular/backend, representación y orden de identificadores y fechas.
+- Representación de carga y situación de asignación, esquema físico y adaptador de persistencia.
+- Versiones compatibles, herramientas de construcción, pruebas y evolución del esquema.
+
+Estas decisiones no están aprobadas por inferencia. Las tareas de definición las mantienen como requisitos previos y deberán refinar las tareas dependientes cuando se resuelvan. No cambian las especificaciones funcionales.
